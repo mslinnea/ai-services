@@ -21,7 +21,9 @@ use Felix_Arntz\AI_Services\Services\Services_API;
 use InvalidArgumentException;
 use WP_CLI;
 use WP_CLI\Formatter;
-
+use Felix_Arntz\AI_Services\Services\API\Enums\Content_Role;
+use Felix_Arntz\AI_Services\Services\API\Types\Content;
+use Felix_Arntz\AI_Services\Services\API\Types\Parts;
 /**
  * AI Services command class for WP-CLI.
  *
@@ -502,6 +504,69 @@ final class AI_Services_Command {
 			$this->stream_generate_text_using_model( $model, $prompt );
 		} else {
 			$this->generate_text_using_model( $model, $prompt );
+		}
+	}
+
+	/**
+	 * Determine which models can generate a caption for an image.
+	 *
+	 * ## EXAMPLES
+	 *
+	 *   wp ai-services audit-openai-model-caps --user=admin
+	 *
+	 * @subcommand audit-openai-model-caps
+	 *
+	 * @param mixed[] $args List of the positional arguments.
+	 * @param array<string, mixed> $assoc_args Map of the associative arguments and their values.
+	 *
+	 * @since 0.2.0
+	 *
+	 */
+	public function audit_openai_model_caps( array $args, array $assoc_args ): void {
+		if ( isset( $assoc_args['image'] ) ) {
+			$url = $assoc_args['image'];
+		} else {
+			$url = 'https://www.linsoftware.com/wp-content/uploads/2024/11/PXL_20240713_140222937-scaled.jpg';
+		}
+		$service = $this->services_api->get_available_service( 'openai' );
+		$models  = $this->get_service_models( 'openai' );
+		$parts   = new Parts();
+		$parts->add_text_part( 'Briefly describe what is displayed in the following image using a single sentence.' );
+		$parts->add_file_data_part( 'image/jpeg', $url );
+		$content = new Content( Content_Role::USER, $parts );
+		foreach ( $models as $slug => $caps ) {
+			if ( ! str_starts_with( $slug, 'gpt-4' ) ) {
+				continue;
+			}
+			\WP_CLI::line( "**** Testing Open AI Model: $slug" );
+			try {
+				$candidates = $service
+					->get_model( [
+						'feature' => 'image-captioning',
+						'model'   => $slug,
+					] )
+					->generate_text( $content );
+				$text       = Helpers::get_text_from_contents(
+					Helpers::get_candidate_contents( $candidates )
+				);
+				WP_CLI::line( $text );
+			} catch ( Generative_AI_Exception $e ) {
+				WP_CLI::line(
+					sprintf(
+						'ERROR: Generating content with model %1$s failed: %2$s',
+						$slug,
+						html_entity_decode( $e->getMessage() )
+					)
+				);
+			} catch ( InvalidArgumentException $e ) {
+				WP_CLI::line(
+					sprintf(
+						'ERROR: Invalid content provided to model %1$s: %2$s',
+						$slug,
+						html_entity_decode( $e->getMessage() )
+					)
+				);
+			}
 		}
 	}
 
